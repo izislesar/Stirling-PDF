@@ -372,7 +372,7 @@ public class PolicyController {
                         "The editor can't be used as an output destination");
             }
             try {
-                policyValidator.validateOutput(destination.toOutputSpec());
+                policyValidator.validateOutput(destination.toOutputSpec(), policy.steps());
             } catch (IllegalArgumentException e) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
             }
@@ -720,7 +720,7 @@ public class PolicyController {
             policyValidator.validateSteps(definition.steps());
             // Every destination is checked; an ad-hoc run with no destinations validates nothing.
             for (OutputSpec output : definition.outputs()) {
-                policyValidator.validateOutput(output);
+                policyValidator.validateOutput(output, definition.steps());
             }
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
