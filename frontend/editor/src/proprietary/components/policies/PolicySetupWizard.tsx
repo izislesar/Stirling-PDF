@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import { Banner, Button, Card, Modal, ToggleSwitch } from "@app/ui";
@@ -36,6 +36,13 @@ export interface PolicySetupFrame {
   canSubmit: boolean;
 }
 
+/** Additional settings share the wizard's draft and participate in its save validation. */
+export interface PolicySetupConfigProps {
+  result: PolicySetupResult;
+  onChange: (patch: Partial<PolicySetupResult>) => void;
+  onValidityChange: (valid: boolean) => void;
+}
+
 interface PolicySetupWizardProps {
   /** The category being configured, or null when closed. */
   entry: CatalogueEntry | null;
@@ -48,6 +55,7 @@ interface PolicySetupWizardProps {
   onCustomise?: (entry: CatalogueEntry, result: PolicySetupResult) => void;
   /** Whether a Purview tenant is connected; gates the Purview-backed steps. */
   hasPurviewConnection?: boolean;
+  setupConfig?: (props: PolicySetupConfigProps) => ReactNode;
   /** Renders the Purview step's inline config. Portal-only; without it the step shows bare. */
   purviewConfig?: (props: {
     parameters: PolicyParams<"purviewApplyLabel">;
@@ -131,13 +139,6 @@ const CAPABILITY_META: Record<
     descKey: "portal.policies.wizard.capability.watermark.desc",
     descEn: "Stamps a visible mark (e.g. “Confidential”) across every page.",
   },
-  ragIngest: {
-    labelKey: "portal.policies.wizard.capability.ragIngest.label",
-    labelEn: "Prepare for knowledge search",
-    descKey: "portal.policies.wizard.capability.ragIngest.desc",
-    descEn:
-      "Prepare searchable chunks for the built-in knowledge base, a connected RAG database, or a corpus export.",
-  },
   ocr: {
     labelKey: "portal.policies.wizard.capability.ocr.label",
     labelEn: "Make text searchable",
@@ -177,6 +178,13 @@ const CAPABILITY_META: Record<
     descKey: "portal.policies.wizard.capability.classify.desc",
     descEn:
       "Identifies the document's type from your team's labels and tags it, so it files and searches by category.",
+  },
+  ragIngest: {
+    labelKey: "portal.policies.wizard.capability.ragIngest.label",
+    labelEn: "Prepare for knowledge search",
+    descKey: "portal.policies.wizard.capability.ragIngest.desc",
+    descEn:
+      "Prepare searchable chunks for the built-in knowledge base, a connected RAG database, or a corpus export.",
   },
   purviewApplyLabel: {
     labelKey: "portal.policies.wizard.capability.purviewApplyLabel.label",
@@ -233,6 +241,7 @@ export function PolicySetupWizard({
   onSubmit,
   onCustomise,
   hasPurviewConnection,
+  setupConfig,
   purviewConfig,
   formatError,
   enforceControl,
@@ -248,6 +257,7 @@ export function PolicySetupWizard({
       onClose={onClose}
       onSubmit={onSubmit}
       onCustomise={onCustomise}
+      setupConfig={setupConfig}
       hasPurviewConnection={hasPurviewConnection}
       purviewConfig={purviewConfig}
       formatError={formatError}
@@ -266,6 +276,7 @@ function PolicySetupWizardBody({
   onSubmit,
   onCustomise,
   hasPurviewConnection = false,
+  setupConfig,
   purviewConfig,
   formatError,
   enforceControl = true,
@@ -278,6 +289,7 @@ function PolicySetupWizardBody({
   onSubmit: (entry: CatalogueEntry, result: PolicySetupResult) => Promise<void>;
   onCustomise?: (entry: CatalogueEntry, result: PolicySetupResult) => void;
   hasPurviewConnection?: boolean;
+  setupConfig?: (props: PolicySetupConfigProps) => ReactNode;
   purviewConfig?: (props: {
     parameters: PolicyParams<"purviewApplyLabel">;
     onChange: (params: PolicyParams<"purviewApplyLabel">) => void;
@@ -324,8 +336,20 @@ function PolicySetupWizardBody({
   const [required, setRequired] = useState(policy?.state.required ?? true);
   const readOnly = !canManagePolicies;
 
+  const [settings, setSettings] = useState<Partial<PolicySetupResult>>({
+    inputs: policy?.state.inputs ?? [],
+    outputIds: policy?.state.outputIds ?? [],
+    runsOnEditor: policy?.state.runsOnEditor ?? !config.needsSource,
+  });
+  const [settingsValid, setSettingsValid] = useState(!setupConfig);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!error) return;
+    errorRef.current?.focus({ preventScroll: true });
+    errorRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [error]);
 
   // Purview steps appear once a tenant is connected; an already-enabled one stays visible
   // so editing never silently drops it.
@@ -363,11 +387,22 @@ function PolicySetupWizardBody({
 
   /** The wizard's current state as a submit result: shared by Save and Customise. */
   function collectResult(): PolicySetupResult {
-    const steps: PipelineStep[] = enabledTools.map((tl) =>
-      policyStepToWire(tl),
-    );
+    const steps: PipelineStep[] = enabledTools.map((tool) => {
+      const step = policyStepToWire(tool);
+      const saved = policy?.steps.find(
+        (original) => original.operation === step.operation,
+      );
+      return {
+        ...saved,
+        ...step,
+        parameters: { ...saved?.parameters, ...step.parameters },
+      };
+    });
     return {
-      required,
+      required:
+        (settings.runsOnEditor ?? true) &&
+        !settings.outputIds?.length &&
+        required,
       // Preserve stored options this wizard has no UI for rather than wiping them on save;
       // the builder is where those are edited.
       extraOptions: policy?.state.extraOptions,
@@ -383,6 +418,7 @@ function PolicySetupWizardBody({
       maxRetries,
       retryDelayMinutes,
       steps,
+      ...settings,
     };
   }
 
@@ -392,7 +428,7 @@ function PolicySetupWizardBody({
   }
 
   async function submit() {
-    if (submitting) return;
+    if (submitting || readOnly || !settingsValid) return;
     if (enabledTools.length === 0) {
       setError(t("portal.policies.wizard.errors.noTools"));
       return;
@@ -409,15 +445,36 @@ function PolicySetupWizardBody({
     }
   }
 
-  const canSubmit = enabledTools.length > 0;
+  const canSubmit = enabledTools.length > 0 && settingsValid && !readOnly;
+  function updateSettings(patch: Partial<PolicySetupResult>) {
+    const { steps, ...rest } = patch;
+    setSettings((previous) => ({ ...previous, ...rest }));
+    if (steps) {
+      const parsed = steps
+        .map(policyStepFromWire)
+        .filter((step) => step !== null);
+      setTools((previous) =>
+        previous.map((tool) => {
+          const replacement = parsed.find(
+            (step) => step.toolId === tool.toolId,
+          );
+          return replacement
+            ? { ...replacement, enabled: true }
+            : { ...tool, enabled: false };
+        }),
+      );
+    }
+  }
   const content = (
     <>
       {error && (
-        <Banner
-          tone="danger"
-          description={error}
-          className="portal-policies__wizard-banner"
-        />
+        <div ref={errorRef} role="alert" tabIndex={-1}>
+          <Banner
+            tone="danger"
+            description={error}
+            className="portal-policies__wizard-banner"
+          />
+        </div>
       )}
 
       {isClassification && (
@@ -468,6 +525,7 @@ function PolicySetupWizardBody({
                       control={
                         <ToggleSwitch
                           size="sm"
+                          disabled={readOnly}
                           checked={tl.enabled}
                           onChange={(checked) =>
                             setToolEnabled(tl.toolId, checked)
@@ -516,16 +574,24 @@ function PolicySetupWizardBody({
         </div>
       )}
 
-      {enforceControl && (
-        <div className="portal-policies__wizard-enforce">
-          <EnforceAsPolicyControl
-            required={required}
-            onRequiredChange={setRequired}
-            disabled={readOnly}
-            permissionsLoading={permissionsLoading}
-          />
-        </div>
-      )}
+      {setupConfig?.({
+        result: collectResult(),
+        onChange: updateSettings,
+        onValidityChange: setSettingsValid,
+      })}
+
+      {enforceControl &&
+        settings.runsOnEditor !== false &&
+        !settings.outputIds?.length && (
+          <div className="portal-policies__wizard-enforce">
+            <EnforceAsPolicyControl
+              required={required}
+              onRequiredChange={setRequired}
+              disabled={readOnly}
+              permissionsLoading={permissionsLoading}
+            />
+          </div>
+        )}
     </>
   );
   if (children) {
@@ -573,10 +639,10 @@ function PolicySetupWizardBody({
           </Button>
           <Button
             size="sm"
-            style={{ marginLeft: "auto" }}
+            style={{ marginInlineStart: "auto" }}
             onClick={submit}
             loading={submitting}
-            disabled={readOnly}
+            disabled={!canSubmit}
           >
             {isEdit
               ? t("portal.policies.wizard.actions.saveChanges")

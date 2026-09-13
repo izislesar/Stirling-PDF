@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSources } from "@portal/queries/sources";
 import { useTranslation } from "react-i18next";
 import {
   Button,
@@ -112,6 +113,7 @@ export function PolicyDetailPanel({
   onClearHistory,
 }: PolicyDetailPanelProps) {
   const { t } = useTranslation();
+  const sourceList = useSources();
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   if (!policy) return null;
@@ -121,7 +123,11 @@ export function PolicyDetailPanel({
   const canDelete = state.isDefault !== true && !readOnly;
   // Editor participation is its own flag (runsOnEditor), not a source. A legacy policy still carries
   // "editor" in its stored sources until re-saved, so drop it here to count only real watched sources.
-  const realSources = state.sources.filter((s) => s !== "editor");
+  const sourceName = (id: string) =>
+    sourceList.data?.sources.find((source) => source.id === id)?.name ?? id;
+  const realSources = state.inputs?.length
+    ? state.inputs.map((input) => sourceName(input.sourceId))
+    : state.sources.filter((source) => source !== "editor");
   // Processed history only exists for watched sources; editor uploads are never ledgered.
   const canClearHistory =
     onClearHistory !== undefined && realSources.length > 0 && !readOnly;
@@ -132,8 +138,12 @@ export function PolicyDetailPanel({
     state.runOn === "export"
       ? t("portal.policies.detail.onEveryExport")
       : t("portal.policies.detail.onEveryUpload");
-  const outputLabel =
-    state.outputMode === "new_file"
+  const outputLabel = state.outputIds?.length
+    ? t(
+        "portal.policies.wizard.locations.keepOriginal",
+        "Keep originals and send to a destination",
+      )
+    : state.outputMode === "new_file"
       ? t("portal.policies.detail.outputAsNewFile")
       : t("portal.policies.detail.outputAsNewVersion");
 
@@ -249,6 +259,21 @@ export function PolicyDetailPanel({
           </div>
         )}
 
+        {(state.runsOnEditor || !!state.outputIds?.length) && (
+          <div className="portal-policies__detail-inline">
+            <span className="portal-policies__detail-inline-label">
+              {t("portal.policies.wizard.locations.output")}
+            </span>
+            <span className="portal-policies__detail-inline-value">
+              {state.runsOnEditor && !state.outputIds?.length
+                ? t(
+                    "portal.policies.wizard.locations.editorDestination",
+                    "Editor workspace",
+                  )
+                : state.outputIds?.map(sourceName).join(" · ")}
+            </span>
+          </div>
+        )}
         <h3 className="portal-policies__wizard-heading">
           {t("portal.policies.detail.recentActivity")}
         </h3>

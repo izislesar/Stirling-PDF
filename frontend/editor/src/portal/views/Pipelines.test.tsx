@@ -45,6 +45,7 @@ const fetchPipeline = vi.fn();
 const savePipeline = vi.fn();
 const fetchPolicyPermissions = vi.fn();
 vi.mock("@portal/api/pipelines", () => ({
+  fetchTriggers: () => Promise.resolve([]),
   fetchPipelines: () => fetchPipelines(),
   fetchPipeline: (id: string) => fetchPipeline(id),
   savePipeline: (policy: unknown) => savePipeline(policy),

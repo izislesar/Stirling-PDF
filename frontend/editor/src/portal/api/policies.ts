@@ -58,10 +58,14 @@ function decoratePolicy(
   const status: PolicyStatus = decoded.enabled ? "active" : "paused";
   const state: PolicyState = {
     configured: true,
+    name: decoded.name,
+    icon: decoded.icon,
     status,
     required: decoded.required,
     extraOptions: decoded.extraOptions,
     sources: decoded.sources,
+    inputs: decoded.inputs,
+    outputIds: decoded.outputIds,
     runsOnEditor: decoded.runsOnEditor,
     scopeTypes: decoded.scopeTypes,
     reviewerEmail: decoded.reviewerEmail,
@@ -157,9 +161,8 @@ function isOrderedSubset<T>(inner: T[], outer: T[]): boolean {
 
 /**
  * The CatalogueEntry that seeds the simple wizard for a policy, or null if the wizard can't express
- * it losslessly - the single authority for routing an edit to the wizard vs the full builder. Null on
- * anything the wizard can't show: no template origin, a server input/destination, an unknown or extra
- * tool, or a reordered chain.
+ * it losslessly. Unsupported triggers, multiple locations, extra tools and reordered chains
+ * stay in the full builder.
  */
 export function parseSimplePolicy(
   policy: Policy,
@@ -172,10 +175,32 @@ export function parseSimplePolicy(
   const config = POLICY_CONFIG[categoryId];
   if (!category || !config) return null;
 
-  // The wizard only runs on the editor (sources + runOn live in the options bag, not as server
-  // inputs/destinations). A policy carrying either cannot be shown simply.
-  if ((policy.inputs?.length ?? 0) > 0) return null;
-  if ((policy.outputIds?.length ?? 0) > 0) return null;
+  if ((policy.inputs?.length ?? 0) > 1 || (policy.outputIds?.length ?? 0) > 1)
+    return null;
+  if (policy.output?.type && policy.output.type !== "inline") return null;
+  if (policy.editor?.allowed && policy.inputs?.length) return null;
+
+  const trigger = policy.inputs?.[0]?.trigger;
+  if (trigger) {
+    if (!["schedule", "folder-watch"].includes(trigger.type)) return null;
+    const options = trigger.options ?? {};
+    if (trigger.type === "folder-watch" && Object.keys(options).length > 0)
+      return null;
+    if (trigger.type === "schedule") {
+      const schedule = options.schedule as
+        | { type?: string; unit?: string; count?: number }
+        | undefined;
+      if (
+        Object.keys(options).some((key) => key !== "schedule") ||
+        schedule?.type !== "every" ||
+        !["MINUTES", "HOURS", "DAYS"].includes(schedule.unit ?? "") ||
+        Object.keys(schedule).some(
+          (key) => !["type", "unit", "count"].includes(key),
+        )
+      )
+        return null;
+    }
+  }
 
   // Every step must be one of this template's capabilities, and they must stay in canonical order.
   const canonical = config.defaultOperations.map((op) => op.toolId);
@@ -190,10 +215,13 @@ export function parseSimplePolicy(
   const wire: WirePolicy = {
     id: policy.id ?? "",
     name: policy.name,
+    icon: policy.icon,
     enabled: policy.enabled,
     required: policy.required,
     trigger: null,
     steps: policy.steps as WirePipelineStep[],
+    inputs: policy.inputs,
+    outputIds: policy.outputIds,
     // The options bag is untyped on the pipeline record; the codec reads it defensively.
     output: {
       type: "inline",
@@ -203,14 +231,19 @@ export function parseSimplePolicy(
   };
   const decorated = decoratePolicy(fromWirePolicy(wire), runs, false);
   if (!decorated) return null;
-  // The wire codec models neither the icon nor the (custom) name; carry them from the raw record so
-  // the Customise hand-off preserves them instead of resetting to the category default.
+
   return {
     category,
     config,
     policy: {
       ...decorated,
-      state: { ...decorated.state, name: policy.name, icon: policy.icon },
+      state: {
+        ...decorated.state,
+        name: policy.name,
+        icon: policy.icon,
+        inputs: policy.inputs ?? [],
+        outputIds: policy.outputIds ?? [],
+      },
     },
   };
 }
@@ -262,7 +295,7 @@ type CatalogueWireBody = WirePolicy & { categoryId: string; icon?: string };
  * otherwise the raw key is persisted and surfaces in the UI (e.g. the Sources
  * "Used by" pill).
  */
-function policyDisplayName(entry: CatalogueEntry, t: TFunction): string {
+export function policyDisplayName(entry: CatalogueEntry, t: TFunction): string {
   return t("portal.policies.defaultName", {
     category: t(entry.category.label),
   });
@@ -278,15 +311,17 @@ export function buildWireFromSetup(
   const stored = entry.policy?.state;
   return {
     categoryId: entry.category.id,
-    icon: stored?.icon,
     ...toWirePolicy({
       id: stored?.backendId ?? "",
       name: stored?.name ?? policyDisplayName(entry, t),
+      icon: stored?.icon,
       enabled,
       required: result.required,
       extraOptions: result.extraOptions,
       policyKey: entry.category.id,
       sources: result.sources,
+      inputs: result.inputs ?? stored?.inputs ?? [],
+      outputIds: result.outputIds ?? stored?.outputIds ?? [],
       runsOnEditor: result.runsOnEditor,
       scopeTypes: result.scopeTypes,
       reviewerEmail: result.reviewerEmail,

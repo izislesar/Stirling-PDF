@@ -1,11 +1,4 @@
-/**
- * Bidirectional codec between the portal's frontend `PolicyDecodedState` and
- * the backend `WirePolicy`. All policy-level metadata rides in
- * `output.options`; `trigger` is always null (the editor fires runs on
- * upload/export via `/run`). Mirrors the editor's `buildBackendPolicy` /
- * `fromBackendPolicy` from `policyPipeline.ts`, minus the editor-only
- * `automation` blob and toolRegistry coupling.
- */
+/** Preserves policy metadata, source bindings, and editor execution settings. */
 
 import { resolveRunOn } from "@app/policies/runOn";
 import type {
@@ -52,10 +45,13 @@ export function toWirePolicy(state: PolicyDecodedState): WirePolicy {
   return {
     id: state.id,
     name: state.name,
+    icon: state.icon,
     owner: "",
     enabled: state.enabled,
     required: state.required,
     trigger: null,
+    inputs: state.inputs ?? [],
+    outputIds: state.outputIds ?? [],
     steps: state.steps,
     // Unmodelled keys go under the typed ones, which always win, so preserving them can't corrupt a
     // known field.
@@ -82,10 +78,13 @@ export function fromWirePolicy(policy: WirePolicy): PolicyDecodedState {
   return {
     id: policy.id,
     name: policy.name,
+    icon: policy.icon,
     enabled: policy.enabled,
     required: policy.required ?? false,
     policyKey,
     sources: Array.isArray(raw.sources) ? raw.sources : [],
+    inputs: policy.inputs ?? [],
+    outputIds: policy.outputIds ?? [],
     runsOnEditor: policy.editor?.allowed === true,
     scopeTypes: Array.isArray(raw.scopeTypes) ? raw.scopeTypes : [],
     reviewerEmail: str(raw.reviewerEmail),
