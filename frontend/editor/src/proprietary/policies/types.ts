@@ -4,9 +4,7 @@
  *
  * The backend stores all portal-level metadata (categoryId, sources, scope,
  * reviewer, fieldValues, runOn, output settings) inside `output.options` — the
- * same "options bag" the editor uses. `trigger` is always null for
- * portal/editor-authored policies; the editor fires runs on upload/export via
- * `/run`, so there is no server-side trigger.
+ * same "options bag" the editor uses. Editor runs use `/run`; saved inputs carry their own server-side triggers.
  */
 
 // ── Wire types (match Policy.java / PipelineStep.java / PolicyRunView.java) ──
@@ -51,14 +49,23 @@ export interface WireEditorConfig {
   runOn: "upload" | "export";
 }
 
+/** A saved input and its server-side trigger; null runs only on demand. */
+export interface WirePipelineInput {
+  sourceId: string;
+  trigger: { type: string; options: Record<string, unknown> } | null;
+}
+
 export interface WirePolicy {
   id: string;
   name: string;
+  icon?: string;
   owner?: string;
   enabled: boolean;
   /** A policy (blocking on failure) rather than an ordinary pipeline (see `Policy.required`). */
   required?: boolean;
   trigger: null;
+  inputs?: WirePipelineInput[];
+  outputIds?: string[];
   steps: WirePipelineStep[];
   output: WireOutputSpec;
   editor?: WireEditorConfig;
@@ -99,8 +106,11 @@ export interface PolicyRunView {
 
 /** Policy settings unpacked from the wire record's `output.options` bag. */
 export interface PolicyDecodedState {
+  inputs?: WirePipelineInput[];
+  outputIds?: string[];
   id: string;
   name: string;
+  icon?: string;
   enabled: boolean;
   /** A policy (blocking on failure) rather than an ordinary pipeline; first-class, not in options. */
   required: boolean;

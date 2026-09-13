@@ -1,3 +1,7 @@
+import {
+  isRagIngestStep,
+  ragIngestStepConfigured,
+} from "@portal/components/pipelines/docparseStep";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -551,9 +555,14 @@ export function PipelineBuilder() {
   function updateStepParams(index: number, update: ParamsUpdate) {
     setSteps((current) =>
       current.map((step, i) => {
-        // Integration steps are deliberately toolId-less, so they must be editable too; only a
-        // genuinely unrecognised step has no editor to send changes from.
-        if (i !== index || (step.toolId === null && !isIntegrationStep(step)))
+        // Integration and DocParse steps are deliberately toolId-less, so they must be editable
+        // too; only a genuinely unrecognised step has no editor to send changes from.
+        if (
+          i !== index ||
+          (step.toolId === null &&
+            !isIntegrationStep(step) &&
+            !isRagIngestStep(step))
+        )
           return step;
         // Resolve the update against the CURRENT step params, so a settings UI firing several
         // single-field changes in one tick (convert's source-format change resets target + options)
@@ -589,6 +598,7 @@ export function PipelineBuilder() {
     if (op) return t(op.labelKey);
     if (isIntegrationStep(step))
       return t("portal.pipelines.builder.sendToSystem");
+    if (isRagIngestStep(step)) return t("portal.policies.endpoints.ragIngest");
     const entry = step.toolId ? allTools[step.toolId] : undefined;
     return entry?.name ?? humanizeOperation(step.operation);
   }
@@ -615,6 +625,7 @@ export function PipelineBuilder() {
     .filter(
       (step) =>
         !integrationStepConfigured(step) ||
+        !ragIngestStepConfigured(step, isEditorInput) ||
         stepNeedsConfiguring(step, allTools),
     )
     .map(stepLabel);
@@ -1176,6 +1187,9 @@ export function PipelineBuilder() {
   function stepDetail(step: WorkingToolStep): string | undefined {
     if (step.support === "unsupported")
       return t("portal.pipelines.builder.usesDefaults");
+    // Integration and DocParse steps are toolId-less by design and carry their own settings UI,
+    // so "unknown" here means "not a registry tool", not "we cannot drive this".
+    if (isIntegrationStep(step) || isRagIngestStep(step)) return undefined;
     if (step.support === "unknown")
       return t("portal.pipelines.builder.unknownStep");
     return undefined;
@@ -1319,6 +1333,7 @@ export function PipelineBuilder() {
     if (selectedStep) {
       return (
         <PipelineStepSettings
+          editorInput={isEditorInput}
           step={selectedStep}
           registry={allTools}
           onChange={(params) => updateStepParams(chosenSteps[0], params)}
