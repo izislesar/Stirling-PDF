@@ -47,6 +47,7 @@ export interface BackendPolicy {
   trigger: BackendTriggerConfig | null;
   steps: BackendPipelineStep[];
   output: BackendOutputSpec;
+  outputIds?: string[];
   /** Whether the editor runs this policy per file, and on which moment. */
   editor?: BackendEditorConfig;
 }
@@ -98,6 +99,7 @@ export interface PolicyRunView {
    */
   errorSubscribed?: boolean | null;
   outputs: BackendResultFile[];
+  externalOutput?: boolean;
   /** When the run was created (epoch millis); lets a rediscovered run show its real age. */
   createdAt: number;
 }
@@ -114,6 +116,7 @@ export interface DecodedPolicy {
   sources: string[];
   /** Whether the editor runs this policy per file, straight from the policy's own flag. */
   runsOnEditor: boolean;
+  externalOutput?: boolean;
   scopeTypes: string[];
   reviewerEmail: string;
   fieldValues: Record<string, boolean | string | string[]>;
@@ -158,6 +161,8 @@ export function fromBackendPolicy(policy: BackendPolicy): DecodedPolicy {
     fieldValues:
       (meta.fieldValues as DecodedPolicy["fieldValues"] | undefined) ?? {},
     runsOnEditor: editor?.allowed === true,
+    externalOutput:
+      Boolean(policy.outputIds?.length) || policy.output.type !== "inline",
     folder: {
       runOn: resolveRunOn(editor?.runOn, policyKey),
       // Legacy/missing output.mode defaults to new_version, not new_file.

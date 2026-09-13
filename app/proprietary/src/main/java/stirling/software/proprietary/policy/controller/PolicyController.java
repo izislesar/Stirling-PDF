@@ -346,15 +346,6 @@ public class PolicyController {
      * nothing to check.
      */
     private void requireAccessibleOutput(Policy policy) {
-        // An editor policy hands its results back to the workspace the file came from. A stored
-        // destination would send the run to a folder or bucket instead, leaving the editor's copy
-        // untouched - and the editor's import would then have nothing to collect.
-        if (policy.editor().allowed() && !policy.outputIds().isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "An editor policy delivers back to the editor and can't also have a"
-                            + " destination");
-        }
         for (String outputId : policy.outputIds()) {
             Source destination =
                     sourceStore
@@ -366,6 +357,10 @@ public class PolicyController {
                                                     HttpStatus.BAD_REQUEST,
                                                     "Unknown or inaccessible output source: "
                                                             + outputId));
+            if (policy.editor().allowed() && !destination.enabled()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "The output destination is disabled");
+            }
             if (EditorSource.TYPE.equals(destination.type())) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
@@ -636,6 +631,12 @@ public class PolicyController {
                                 () ->
                                         new ResponseStatusException(
                                                 HttpStatus.NOT_FOUND, "No policy: " + policyId));
+        requireAccessibleOutput(policy);
+        try {
+            policyValidator.validateEditorOutput(policy);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
         stampPolicyAudit(policy.toDefinition());
         PolicyInputs inputs = toInputs(files);
         String runId =

@@ -10,6 +10,7 @@
  * download. Only PDFs are enforced.
  */
 
+import { dispatchPolicyFile } from "@app/services/policyDispatch";
 import { loadPolicies } from "@app/services/policyStorage";
 import { loadPolicyCatalog } from "@app/services/policyCatalog";
 import {
@@ -22,6 +23,7 @@ import type { PolicyExecutionTarget } from "@app/services/policyPipeline";
 import {
   recordRunStart,
   isDispatched,
+  markDispatched,
 } from "@app/components/policies/policyRunStore";
 import {
   runQueued,
@@ -46,6 +48,7 @@ interface ExportPolicy {
   backendId: string;
   label: string;
   outputMode: "new_file" | "new_version";
+  externalOutput?: boolean;
   /** The policy's accent as a CSS colour, for the toast glow. */
   accent: string;
 }
@@ -55,6 +58,7 @@ interface PolicyRunResult {
   runId: string;
   target: PolicyExecutionTarget;
   outputs: { fileId: string; fileName: string }[];
+  externalOutput?: boolean;
 }
 
 /** Configured, active policies set to enforce on export (read from the cache). */
@@ -78,6 +82,7 @@ function activeExportPolicies(): ExportPolicy[] {
       .map(([id, s]) => ({
         policyKey: id,
         backendId: s.backendId as string,
+        externalOutput: s.externalOutput,
         // A builder pipeline has no built-in category, so it labels by its own name.
         label: labels.get(id) ?? s.name ?? "Policy",
         outputMode: s.outputMode === "new_file" ? "new_file" : "new_version",
@@ -103,6 +108,14 @@ async function runToCompletion(
       continue; // transient — keep polling within the cap.
     }
     if (view.status === "COMPLETED") {
+      if (view.externalOutput)
+        return {
+          file,
+          runId,
+          target,
+          outputs: view.outputs ?? [],
+          externalOutput: true,
+        };
       const out = view.outputs?.[0];
       if (!out) throw new Error("policy produced no output");
       const blob = await downloadPolicyOutput(out.fileId, target);
@@ -151,8 +164,24 @@ export async function enforceExportPolicies(
   fileIds?: (string | undefined)[],
   trigger: EnforcementTrigger = "export",
 ): Promise<File[]> {
-  const active = activeExportPolicies();
+  const policies = activeExportPolicies();
+  const active = policies.filter((policy) => !policy.externalOutput);
   const targets = files.flatMap((f, i) => (isPdf(f) ? [i] : []));
+  for (const i of targets) {
+    const fileId = fileIds?.[i];
+    for (const policy of policies.filter((p) => p.externalOutput)) {
+      if (fileId && isDispatched(policy.policyKey, fileId)) continue;
+      if (fileId) markDispatched(policy.policyKey, fileId);
+      void dispatchPolicyFile(
+        policy.policyKey,
+        policy.backendId,
+        files[i],
+        fileId,
+        false,
+        true,
+      );
+    }
+  }
   if (!active.length || targets.length === 0) return files;
 
   // Policies that haven't already enforced this exact file version. Enforcing
@@ -210,7 +239,21 @@ export async function enforceExportPolicies(
         for (const policy of toRun) {
           const result = await runToCompletion(policy.backendId, current);
           current = result.file;
-          if (policy.outputMode === "new_version" && fileId) {
+          if (result.externalOutput) {
+            recordRunStart({
+              runId: result.runId,
+              policyKey: policy.policyKey,
+              fileId: fileId ?? "",
+              fileName: file.name,
+              fileSize: file.size,
+              target: result.target,
+              externalOutput: true,
+              status: "COMPLETED",
+              outputs: result.outputs,
+              error: null,
+              startedAt: Date.now(),
+            });
+          } else if (policy.outputMode === "new_version" && fileId) {
             versionRun = { ...result, policyKey: policy.policyKey };
           }
         }

@@ -71,6 +71,7 @@ import {
   recordRunStart,
   getRun,
   resetPolicyRuns,
+  updateRun,
 } from "@app/components/policies/policyRunStore";
 
 /** Seed a finished run (one output) so the import effect fires on mount. */
@@ -118,6 +119,26 @@ beforeEach(() => {
 });
 
 describe("auto-run import: new-version output delivery", () => {
+  it.each(["doc.chunks.jsonl", "indexing-report.json", "processed.pdf"])(
+    "never imports external %s, even if the policy now replaces editor files",
+    async (fileName) => {
+      mocks.fileStubs = [{ id: "file-1" }];
+      recordCompletedRun();
+      updateRun("run-1", {
+        externalOutput: true,
+        outputs: [{ fileId: "out-1", fileName }],
+      });
+      await runImport();
+      expect(getRun("run-1")?.outputFileIds).toEqual(["file-1"]);
+      expect(mocks.downloadPolicyOutput).not.toHaveBeenCalled();
+      expect(mocks.consumeFiles).not.toHaveBeenCalled();
+      expect(mocks.addFiles).not.toHaveBeenCalled();
+      expect(mocks.persistVersionedOutputs).not.toHaveBeenCalled();
+      expect(mocks.updateFileMetadata).not.toHaveBeenCalled();
+      expect(mocks.bumpRevision).not.toHaveBeenCalled();
+    },
+  );
+
   it("versions the input in storage when it's recovered after a reload (no second file)", async () => {
     // Reload case: the workspace is empty, but the input still persists in IndexedDB.
     mocks.fileStubs = [];
