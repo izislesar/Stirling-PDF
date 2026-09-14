@@ -1,0 +1,34 @@
+# laptop selfhost, manual runs only — nothing starts on boot
+# usage: docker compose -f selfhost/docker-compose.yml --env-file selfhost/.env up -d
+# pdf toolbox (merge, split, ocr, compress). stateless, ~400mb ram (java).
+
+services:
+  stirling:
+    image: stirlingtools/stirling-pdf:latest
+    container_name: stirling-pdf
+    restart: "no"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - SECURITY_ENABLELOGIN=true
+      - SECURITY_INITIALLOGIN_USERNAME=${ADMIN_USER:-admin}
+      - SECURITY_INITIALLOGIN_PASSWORD=${ADMIN_PASSWORD:-changeme-long}
+      - SYSTEM_DEFAULTLOCALE=en-GB
+    volumes:
+      - stirling-training:/usr/share/tessdata
+      - stirling-config:/configs
+    ports:
+      - "${STIRLING_PORT:-8099}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/info/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  stirling-training:
+    name: stirling-training
+  stirling-config:
+    name: stirling-config
