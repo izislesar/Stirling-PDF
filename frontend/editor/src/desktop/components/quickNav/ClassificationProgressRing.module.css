@@ -1,0 +1,129 @@
+.item {
+  /* Collapses in place when leaving, so the rail closes the gap rather than snapping. */
+  transition:
+    height var(--motion-spring),
+    opacity var(--motion-base),
+    transform var(--motion-spring);
+  overflow: hidden;
+}
+
+.leaving {
+  height: 0;
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 1.875rem;
+  height: 1.875rem;
+  /* Start at 12 o'clock and fill clockwise. */
+  transform: rotate(-90deg);
+}
+
+/* The rail sizes every svg to the glyph size; the ring is the whole control. */
+.item svg.ring {
+  width: 1.875rem;
+  height: 1.875rem;
+}
+
+.track {
+  fill: none;
+  stroke: var(--c-border);
+}
+
+.fill {
+  fill: none;
+  stroke: var(--c-primary);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s cubic-bezier(0.32, 0.72, 0, 1), stroke var(--motion-base);
+}
+
+.item[data-state="done"] .fill {
+  stroke: var(--c-success);
+}
+
+/* Folder still being read: no total to fill toward, so a short arc turns instead. */
+.ringTurning {
+  animation: ring-turn 1.1s linear infinite;
+}
+
+@keyframes ring-turn {
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+.centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.item:hover .centre {
+  color: var(--c-text);
+}
+
+.stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font-size: 0.4375rem; /* 7px */
+}
+
+.numerator {
+  padding-bottom: 1px;
+  border-bottom: 1px solid var(--c-text-subtle);
+  min-width: 0.75rem;
+  text-align: center;
+}
+
+.denominator {
+  color: var(--c-text-muted);
+}
+
+.count {
+  font-size: 0.625rem; /* 10px */
+}
+
+.tick {
+  color: var(--c-success);
+  animation: tick-pop var(--motion-spring) both;
+}
+
+/* Sized here because the rail's svg rule would otherwise pin it to the glyph size. */
+.item svg.tick {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+@keyframes tick-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item,
+  .fill,
+  .ringTurning,
+  .tick {
+    transition: none;
+    animation: none;
+  }
+}
