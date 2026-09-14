@@ -1,5 +1,9 @@
 import { useCallback, useRef, useEffect, useContext } from "react";
 import apiClient from "@app/services/apiClient";
+import {
+  assertFilesNotBlocked,
+  policySourceIds,
+} from "@app/services/policyFileGuard";
 import { useTranslation } from "react-i18next";
 import { useFileContext } from "@app/contexts/FileContext";
 import { useNavigationActions } from "@app/contexts/NavigationContext";
@@ -219,6 +223,16 @@ export const useToolOperation = <TParams>(
 
   const executeOperation = useCallback(
     async (params: TParams, selectedFiles: StirlingFile[]): Promise<void> => {
+      const policyIds = selectedFiles.flatMap((file) => {
+        const stub = selectors.getStirlingFileStub(file.fileId);
+        return stub ? policySourceIds(stub) : [file.fileId];
+      });
+      try {
+        assertFilesNotBlocked(policyIds);
+      } catch (error) {
+        actions.setError(extractErrorMessage(error));
+        return;
+      }
       // Validation
       if (selectedFiles.length === 0) {
         actions.setError(t("noFileSelected", "No file loaded"));
@@ -297,6 +311,7 @@ export const useToolOperation = <TParams>(
       window.addEventListener(FILE_EVENTS.markError, errorListener);
 
       try {
+        assertFilesNotBlocked(policyIds);
         let processedFiles: File[];
         let successSourceIds: FileId[] = [];
 
@@ -475,6 +490,7 @@ export const useToolOperation = <TParams>(
         }
 
         if (processedFiles.length > 0) {
+          assertFilesNotBlocked(policyIds);
           trackEditorOperation(
             config.operationType,
             successSourceIds.length || validFiles.length,
@@ -491,6 +507,7 @@ export const useToolOperation = <TParams>(
           actions.setGeneratingThumbnails(false);
 
           actions.setThumbnails(thumbnails);
+          assertFilesNotBlocked(policyIds);
 
           // Determine whether outputs are new versions of their inputs or independent artifacts.
           // A version operation produces exactly one output per successful input, all in the same
@@ -571,6 +588,7 @@ export const useToolOperation = <TParams>(
               inputCount: inputFileIds.length,
               toConsume: toConsumeInputIds.length,
             });
+            assertFilesNotBlocked(policyIds);
             const outputFileIds = await consumeFiles(
               toConsumeInputIds,
               outputStirlingFiles,
@@ -645,6 +663,7 @@ export const useToolOperation = <TParams>(
               inputCount: inputFileIds.length,
               toConsume: toConsumeInputIds.length,
             });
+            assertFilesNotBlocked(policyIds);
             const outputFileIds = await consumeFiles(
               toConsumeInputIds,
               outputStirlingFiles,

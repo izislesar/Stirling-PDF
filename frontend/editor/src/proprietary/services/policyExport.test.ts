@@ -24,6 +24,7 @@ vi.mock("@app/services/policyApi", () => ({
 vi.mock("@app/components/policies/policyRunStore", () => ({
   recordRunStart: vi.fn(),
   isDispatched: () => false,
+  getPolicyRunOutcomes: () => ({}),
 }));
 // Run the queued task inline: the queue's own behaviour is not under test here.
 vi.mock("@app/components/policies/enforcementQueue", () => ({
@@ -61,6 +62,49 @@ const pdf = () =>
 
 describe("export-time policy selection", () => {
   beforeEach(() => runStoredPolicy.mockClear());
+
+  it("refuses export when a required policy fails", async () => {
+    loadPolicies.mockReturnValue({
+      security: exportPolicy({ runsOnEditor: true, required: true }),
+    });
+    runStoredPolicy.mockRejectedValueOnce(new Error("offline"));
+    await expect(enforceExportPolicies([pdf()], ["file-1"])).rejects.toThrow(
+      "policy.exportBlocked",
+    );
+  });
+
+  it("still enforces a later required policy after an optional failure", async () => {
+    loadPolicies.mockReturnValue({
+      optional: exportPolicy({
+        runsOnEditor: true,
+        backendId: "optional",
+        order: 0,
+      }),
+      required: exportPolicy({
+        runsOnEditor: true,
+        backendId: "required",
+        required: true,
+        order: 1,
+      }),
+    });
+    runStoredPolicy.mockRejectedValueOnce(new Error("offline"));
+    await enforceExportPolicies([pdf()], ["file-1"]);
+    expect(runStoredPolicy.mock.calls.map(([id]) => id)).toEqual([
+      "optional",
+      "required",
+    ]);
+  });
+
+  it("still allows the original when an ordinary pipeline fails", async () => {
+    loadPolicies.mockReturnValue({
+      security: exportPolicy({ runsOnEditor: true, required: false }),
+    });
+    runStoredPolicy.mockRejectedValueOnce(new Error("offline"));
+    const input = pdf();
+    await expect(enforceExportPolicies([input], ["file-1"])).resolves.toEqual([
+      input,
+    ]);
+  });
 
   it("enforces an editor pipeline set to run on export", async () => {
     loadPolicies.mockReturnValue({
