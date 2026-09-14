@@ -39,7 +39,7 @@ export interface BackendPolicy {
   /** Blank on create — the backend assigns an id and returns it. */
   id: string;
   name: string;
-  owner: string;
+  owner: string | null;
   /** Gates automatic triggering; an explicit run ignores it. */
   enabled: boolean;
   /** Null for a manual-only (client-driven) policy — the editor fires runs on
@@ -110,6 +110,8 @@ export interface DecodedPolicy {
   /** The policy this record belongs to, read from `output.options.categoryId`. */
   policyKey: string;
   name: string;
+  /** The backend owner's username; empty when no owner is assigned. */
+  owner: string;
   enabled: boolean;
   /** Null if the stored policy carried no automation blob. */
   automation: AutomationConfig | null;
@@ -152,6 +154,7 @@ export function fromBackendPolicy(policy: BackendPolicy): DecodedPolicy {
     id: policy.id,
     policyKey,
     name: policy.name,
+    owner: str(policy.owner),
     enabled: policy.enabled,
     automation: (output.automation as AutomationConfig | undefined) ?? null,
     sources: Array.isArray(meta.sources) ? (meta.sources as string[]) : [],
